@@ -67,10 +67,12 @@ func TestSARIF_OutputArtifactPaths(t *testing.T) {
 
 func TestSARIF_Output(t *testing.T) {
 	tests := []struct {
-		name     string
-		results  []CheckResult
-		wantErr  bool
-		wantJSON string
+		name       string
+		results    []CheckResult
+		failOnWarn bool
+		noFail     bool
+		wantErr    bool
+		wantJSON   string
 	}{
 		{
 			name:    "empty results",
@@ -143,7 +145,7 @@ func TestSARIF_Output(t *testing.T) {
 						},
 						"invocations": []map[string]any{
 							{
-								"executionSuccessful": true,
+								"executionSuccessful": false,
 								"exitCode":            1,
 								"exitCodeDescription": "Policy violations found",
 							},
@@ -455,7 +457,7 @@ func TestSARIF_Output(t *testing.T) {
 						},
 						"invocations": []map[string]any{
 							{
-								"executionSuccessful": true,
+								"executionSuccessful": false,
 								"exitCode":            1,
 								"exitCodeDescription": "Policy violations found",
 							},
@@ -562,12 +564,359 @@ func TestSARIF_Output(t *testing.T) {
 				},
 			}),
 		},
+		{
+			name: "exception with waived violation details",
+			results: []CheckResult{
+				{
+					FileName:  "test.yaml",
+					Namespace: "main",
+					Exceptions: []Result{
+						{
+							Message: `data.main.exception[_][_] == "run_as_root"`,
+							Metadata: map[string]any{
+								WaivedRuleMetadata:     "deny_run_as_root",
+								WaivedSeverityMetadata: "failure",
+								WaivedMessagesMetadata: []string{
+									"Containers must not run as root in Deployment can-run-as-root",
+								},
+								WaivedResultsMetadata: []Result{
+									{
+										Message: "Containers must not run as root in Deployment can-run-as-root",
+										Metadata: map[string]any{
+											"query": "data.main.deny_run_as_root",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantJSON: mustJSON(t, map[string]any{
+				"version": "2.1.0",
+				"$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+				"runs": []map[string]any{
+					{
+						"tool": map[string]any{
+							"driver": map[string]any{
+								"informationUri": toolURI,
+								"name":           toolName,
+								"version":        version.Version,
+								"rules": []map[string]any{
+									{
+										"id": "main/deny_run_as_root",
+										"shortDescription": map[string]any{
+											"text": "Policy violation",
+										},
+										"properties": map[string]any{
+											"exception": `data.main.exception[_][_] == "run_as_root"`,
+											"query":     "data.main.deny_run_as_root",
+										},
+									},
+									{
+										"id": "main/success",
+										"shortDescription": map[string]any{
+											"text": "Policy was satisfied successfully",
+										},
+										"properties": map[string]any{
+											"description": "Policy was satisfied successfully",
+										},
+									},
+								},
+							},
+						},
+						"invocations": []map[string]any{
+							{
+								"executionSuccessful": true,
+								"exitCode":            0,
+								"exitCodeDescription": "No policy violations found",
+							},
+						},
+						"results": []map[string]any{
+							{
+								"ruleId":    "main/deny_run_as_root",
+								"ruleIndex": 0,
+								"level":     "error",
+								"message": map[string]any{
+									"text": "Containers must not run as root in Deployment can-run-as-root",
+								},
+								"locations": []map[string]any{
+									{
+										"physicalLocation": map[string]any{
+											"artifactLocation": map[string]any{
+												"uri": "test.yaml",
+											},
+										},
+									},
+								},
+								"suppressions": []map[string]any{
+									{
+										"kind":          "external",
+										"status":        nil,
+										"location":      nil,
+										"guid":          nil,
+										"justification": `data.main.exception[_][_] == "run_as_root"`,
+									},
+								},
+							},
+							{
+								"ruleId":    "main/success",
+								"ruleIndex": 1,
+								"level":     "none",
+								"message": map[string]any{
+									"text": "Policy was satisfied successfully",
+								},
+								"locations": []map[string]any{
+									{
+										"physicalLocation": map[string]any{
+											"artifactLocation": map[string]any{
+												"uri": "test.yaml",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+		{
+			name: "exception with message only metadata falls back to waived messages",
+			results: []CheckResult{
+				{
+					FileName:  "test.yaml",
+					Namespace: "main",
+					Exceptions: []Result{
+						{
+							Message: `data.main.exception[_][_] == "legacy"`,
+							Metadata: map[string]any{
+								WaivedRuleMetadata:     "deny_legacy",
+								WaivedSeverityMetadata: "failure",
+								WaivedMessagesMetadata: []string{"legacy waived message"},
+							},
+						},
+					},
+				},
+			},
+			wantJSON: mustJSON(t, map[string]any{
+				"version": "2.1.0",
+				"$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+				"runs": []map[string]any{
+					{
+						"tool": map[string]any{
+							"driver": map[string]any{
+								"informationUri": toolURI,
+								"name":           toolName,
+								"version":        version.Version,
+								"rules": []map[string]any{
+									{
+										"id": "main/deny_legacy",
+										"shortDescription": map[string]any{
+											"text": "Policy violation",
+										},
+										"properties": map[string]any{
+											"exception": `data.main.exception[_][_] == "legacy"`,
+										},
+									},
+									{
+										"id": "main/success",
+										"shortDescription": map[string]any{
+											"text": "Policy was satisfied successfully",
+										},
+										"properties": map[string]any{
+											"description": "Policy was satisfied successfully",
+										},
+									},
+								},
+							},
+						},
+						"invocations": []map[string]any{
+							{
+								"executionSuccessful": true,
+								"exitCode":            0,
+								"exitCodeDescription": "No policy violations found",
+							},
+						},
+						"results": []map[string]any{
+							{
+								"ruleId":    "main/deny_legacy",
+								"ruleIndex": 0,
+								"level":     "error",
+								"message": map[string]any{
+									"text": "legacy waived message",
+								},
+								"locations": []map[string]any{
+									{
+										"physicalLocation": map[string]any{
+											"artifactLocation": map[string]any{
+												"uri": "test.yaml",
+											},
+										},
+									},
+								},
+								"suppressions": []map[string]any{
+									{
+										"kind":          "external",
+										"status":        nil,
+										"location":      nil,
+										"guid":          nil,
+										"justification": `data.main.exception[_][_] == "legacy"`,
+									},
+								},
+							},
+							{
+								"ruleId":    "main/success",
+								"ruleIndex": 1,
+								"level":     "none",
+								"message": map[string]any{
+									"text": "Policy was satisfied successfully",
+								},
+								"locations": []map[string]any{
+									{
+										"physicalLocation": map[string]any{
+											"artifactLocation": map[string]any{
+												"uri": "test.yaml",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+		{
+			name:       "warning with fail on warn reports process exit code",
+			failOnWarn: true,
+			results: []CheckResult{
+				{
+					FileName:  "test.yaml",
+					Namespace: "main",
+					Warnings: []Result{
+						{Message: "test warning"},
+					},
+				},
+			},
+			wantJSON: mustJSON(t, map[string]any{
+				"version": "2.1.0",
+				"$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+				"runs": []map[string]any{
+					{
+						"tool": map[string]any{
+							"driver": map[string]any{
+								"informationUri": toolURI,
+								"name":           toolName,
+								"version":        version.Version,
+								"rules": []map[string]any{
+									{
+										"id": "main/warn",
+										"shortDescription": map[string]any{
+											"text": "Policy warning",
+										},
+									},
+								},
+							},
+						},
+						"invocations": []map[string]any{
+							{
+								"executionSuccessful": false,
+								"exitCode":            1,
+								"exitCodeDescription": "Policy warnings found",
+							},
+						},
+						"results": []map[string]any{
+							{
+								"ruleId":    "main/warn",
+								"ruleIndex": 0,
+								"level":     "warning",
+								"message": map[string]any{
+									"text": "test warning",
+								},
+								"locations": []map[string]any{
+									{
+										"physicalLocation": map[string]any{
+											"artifactLocation": map[string]any{
+												"uri": "test.yaml",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
+		{
+			name:   "failure with no fail reports zero exit code",
+			noFail: true,
+			results: []CheckResult{
+				{
+					FileName:  "test.yaml",
+					Namespace: "main",
+					Failures: []Result{
+						{Message: "test failure"},
+					},
+				},
+			},
+			wantJSON: mustJSON(t, map[string]any{
+				"version": "2.1.0",
+				"$schema": "https://raw.githubusercontent.com/oasis-tcs/sarif-spec/main/sarif-2.1/schema/sarif-schema-2.1.0.json",
+				"runs": []map[string]any{
+					{
+						"tool": map[string]any{
+							"driver": map[string]any{
+								"informationUri": toolURI,
+								"name":           toolName,
+								"version":        version.Version,
+								"rules": []map[string]any{
+									{
+										"id": "main/deny",
+										"shortDescription": map[string]any{
+											"text": "Policy violation",
+										},
+									},
+								},
+							},
+						},
+						"invocations": []map[string]any{
+							{
+								"executionSuccessful": true,
+								"exitCode":            0,
+								"exitCodeDescription": "Policy violations found",
+							},
+						},
+						"results": []map[string]any{
+							{
+								"ruleId":    "main/deny",
+								"ruleIndex": 0,
+								"level":     "error",
+								"message": map[string]any{
+									"text": "test failure",
+								},
+								"locations": []map[string]any{
+									{
+										"physicalLocation": map[string]any{
+											"artifactLocation": map[string]any{
+												"uri": "test.yaml",
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			var buf bytes.Buffer
-			s := NewSARIF(&buf)
+			s := NewSARIFWithExitOptions(&buf, tt.failOnWarn, tt.noFail)
 
 			err := s.Output(tt.results)
 			if (err != nil) != tt.wantErr {

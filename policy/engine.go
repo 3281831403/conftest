@@ -377,11 +377,18 @@ func (e *Engine) check(ctx context.Context, path string, config any, namespace s
 
 		var failures []output.Result
 		var warnings []output.Result
+		var ruleViolations []output.Result
 		for _, ruleResult := range ruleQueryResult.Results {
 
 			// Exceptions have already been accounted for in the exception query so
-			// we skip them here to avoid doubling the result.
+			// the rule's results are skipped to avoid doubling the result. The
+			// skipped violations are retained on the exception results as
+			// metadata so reports can still show which violations were allowed
+			// and which rule they belonged to.
 			if len(exceptions) > 0 {
+				if !ruleResult.Passed() && isFailure(rule) {
+					ruleViolations = append(ruleViolations, ruleResult)
+				}
 				continue
 			}
 
@@ -395,6 +402,10 @@ func (e *Engine) check(ctx context.Context, path string, config any, namespace s
 			} else {
 				warnings = append(warnings, ruleResult)
 			}
+		}
+
+		if len(exceptions) > 0 {
+			enrichExceptions(exceptions, rule, ruleViolations)
 		}
 
 		checkResult.Failures = append(checkResult.Failures, failures...)
@@ -557,6 +568,35 @@ func isWarning(rule string) bool {
 
 func isFailure(rule string) bool {
 	return failureRegex.MatchString(rule)
+}
+
+// enrichExceptions attaches the violations waived by an exception to each
+// exception result. The exception message itself is left untouched, while the
+// waived violations are recorded under dedicated metadata keys so that reports
+// can show the original violation messages, locations and the rule they
+// belonged to.
+func enrichExceptions(exceptions []output.Result, rule string, violations []output.Result) {
+	severity := "failure"
+	if isWarning(rule) {
+		severity = "warning"
+	}
+
+	messages := make([]string, 0, len(violations))
+	for _, violation := range violations {
+		messages = append(messages, violation.Message)
+	}
+
+	for i := range exceptions {
+		if exceptions[i].Metadata == nil {
+			exceptions[i].Metadata = map[string]any{}
+		}
+		exceptions[i].Metadata[output.WaivedRuleMetadata] = rule
+		exceptions[i].Metadata[output.WaivedSeverityMetadata] = severity
+		if len(violations) > 0 {
+			exceptions[i].Metadata[output.WaivedMessagesMetadata] = messages
+			exceptions[i].Metadata[output.WaivedResultsMetadata] = violations
+		}
+	}
 }
 
 func problematicIf(modules map[string]*ast.Module) error {

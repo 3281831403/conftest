@@ -30,6 +30,14 @@ type Options struct {
 	GitHubHidePassed   bool
 	File               *os.File
 	VarValues          bool
+
+	// FailOnWarn mirrors the test command's --fail-on-warn flag and is used by
+	// outputters that report the process exit code (e.g. SARIF invocations).
+	FailOnWarn bool
+
+	// NoFail mirrors the test command's --no-fail flag and is used by
+	// outputters that report the process exit code (e.g. SARIF invocations).
+	NoFail bool
 }
 
 // The defined output formats represent all of the supported formats
@@ -93,7 +101,7 @@ func newOutputter(format string, options Options) Outputter {
 	case OutputAzureDevOps:
 		return NewAzureDevOps(options.File)
 	case OutputSARIF:
-		return NewSARIF(options.File)
+		return NewSARIFWithExitOptions(options.File, options.FailOnWarn, options.NoFail)
 	default:
 		return NewStandard(options.File)
 	}

@@ -30,6 +30,44 @@ detect when exceptions are being made. For example, you might see this summary:
 
 `2 tests, 1 passed, 0 warnings, 0 failures, 1 exception`.
 
+The human readable output keeps the exception query string as the exception
+message, e.g.:
+
+`EXCP - examples/exceptions/deployments.yaml - main - data.main.exception[_][_] == "run_as_root"`
+
+Structured output additionally records the violations that were waived so that
+audits can see which rule was exempted and which messages it suppressed. In the
+`json` output each exception carries `waived_rule`, `waived_severity`,
+`waived_messages` and, when available, the full `waived_results` (including
+locations) in its `metadata`:
+
+```json
+{
+  "msg": "data.main.exception[_][_] == \"run_as_root\"",
+  "metadata": {
+    "waived_rule": "deny_run_as_root",
+    "waived_severity": "failure",
+    "waived_messages": [
+      "Containers must not run as root in Deployment can-run-as-root"
+    ],
+    "waived_results": [
+      {
+        "msg": "Containers must not run as root in Deployment can-run-as-root",
+        "metadata": {
+          "query": "data.main.deny_run_as_root"
+        }
+      }
+    ]
+  }
+}
+```
+
+In the `sarif` output each waived violation is reported against the rule that
+produced it (preserving its message, level and location) and is marked with an
+external `suppression` whose `justification` is the exception query string. The
+invocation `exitCode` matches the process exit code, including the effects of
+the `--fail-on-warn` and `--no-fail` flags.
+
 ## Examples
 
 In the below example, a Kubernetes deployment named `can-run-as-root` will be

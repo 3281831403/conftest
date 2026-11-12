@@ -30,6 +30,65 @@ const (
 	locField = "_loc"
 )
 
+// Metadata keys used to attach rule attribution to exception results. They
+// record the violations waived by the exception without changing any of the
+// existing top-level JSON fields.
+const (
+	// WaivedRuleMetadata is the name of the rule whose violation was waived,
+	// e.g. "deny_run_as_root".
+	WaivedRuleMetadata = "waived_rule"
+	// WaivedSeverityMetadata is the severity of the waived rule, either
+	// "failure" or "warning".
+	WaivedSeverityMetadata = "waived_severity"
+	// WaivedMessagesMetadata holds the messages of the individual violations
+	// that were waived by the exception.
+	WaivedMessagesMetadata = "waived_messages"
+	// WaivedResultsMetadata holds the full results of the individual
+	// violations that were waived by the exception, including their locations
+	// and any metadata returned by the rule.
+	WaivedResultsMetadata = "waived_results"
+)
+
+// WaivedMessages returns the messages of the violations that were waived by an
+// exception, or nil when the result does not record any waived violations.
+func (r Result) WaivedMessages() []string {
+	if r.Metadata == nil {
+		return nil
+	}
+	raw, ok := r.Metadata[WaivedMessagesMetadata]
+	if !ok {
+		return nil
+	}
+	messages, ok := raw.([]string)
+	if !ok {
+		return nil
+	}
+	return messages
+}
+
+// WaivedResults returns the full results of the violations that were waived by
+// an exception, or nil when the result does not record any waived violations.
+func (r Result) WaivedResults() []Result {
+	if r.Metadata == nil {
+		return nil
+	}
+	results, ok := r.Metadata[WaivedResultsMetadata].([]Result)
+	if !ok {
+		return nil
+	}
+	return results
+}
+
+// WaivedRule returns the name of the rule whose violation was waived and
+// whether the information is present on the result.
+func (r Result) WaivedRule() (string, bool) {
+	if r.Metadata == nil {
+		return "", false
+	}
+	rule, ok := r.Metadata[WaivedRuleMetadata].(string)
+	return rule, ok
+}
+
 var reservedFields = []string{
 	msgField,
 	locField,

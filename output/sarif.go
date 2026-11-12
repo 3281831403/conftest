@@ -34,12 +34,27 @@ const (
 // SARIF represents an Outputter that outputs results in SARIF format.
 type SARIF struct {
 	writer io.Writer
+
+	// failOnWarn and noFail mirror the test command's flags so that the
+	// invocation block reports the same exit code the process will return.
+	failOnWarn bool
+	noFail     bool
 }
 
 // NewSARIF creates a new SARIF with the given writer.
 func NewSARIF(w io.Writer) *SARIF {
 	return &SARIF{
 		writer: w,
+	}
+}
+
+// NewSARIFWithExitOptions creates a new SARIF configured with the exit code
+// semantics used by the invoking command.
+func NewSARIFWithExitOptions(w io.Writer, failOnWarn, noFail bool) *SARIF {
+	return &SARIF{
+		writer:     w,
+		failOnWarn: failOnWarn,
+		noFail:     noFail,
 	}
 }
 
@@ -105,6 +120,62 @@ func addResult(run *sarif.Run, result Result, namespace, ruleType, level, fileNa
 		AddLocation(sarif.NewLocationWithPhysicalLocation(location))
 }
 
+// addExceptionResults renders the violations waived by an exception. When the
+// engine recorded the waived violations, each one is reported against the rule
+// that produced it and marked with an "external" suppression, preserving the
+// original violation message, location and its rule attribution. Exceptions
+// without waived violation details fall back to the generic "allow" result.
+func addExceptionResults(run *sarif.Run, exception Result, namespace, fileName string, indices map[string]int) {
+	ruleName, hasRule := exception.WaivedRule()
+	waivedResults := exception.WaivedResults()
+	if !hasRule || len(waivedResults) == 0 {
+		// Fall back to the message-only metadata, or the generic "allow"
+		// result when the engine recorded no waived violations at all.
+		waivedMessages := exception.WaivedMessages()
+		if len(waivedMessages) == 0 {
+			addResult(run, exception, namespace, "allow", "note", fileName, indices)
+			return
+		}
+		for _, message := range waivedMessages {
+			waivedResults = append(waivedResults, Result{Message: message})
+		}
+	}
+
+	severity, _ := exception.Metadata[WaivedSeverityMetadata].(string)
+	level := "error"
+	if severity == "warning" {
+		level = "warning"
+	}
+
+	for _, waivedResult := range waivedResults {
+		// The exception query string is kept as provenance alongside the
+		// metadata produced by the original rule.
+		waivedResult.Metadata = mergeMetadata(waivedResult.Metadata, map[string]any{
+			"exception": exception.Message,
+		})
+		addResult(run, waivedResult, namespace, ruleName, level, fileName, indices)
+
+		suppression := sarif.NewSuppression("external")
+		// The go-sarif setter for this field is misspelled
+		// (WithJustifcation), so set the field directly.
+		suppression.Justification = &exception.Message
+		run.Results[len(run.Results)-1].AddSuppression(suppression)
+	}
+}
+
+// mergeMetadata returns a new metadata map containing the entries of both
+// inputs. The base map is not modified.
+func mergeMetadata(base map[string]any, extra map[string]any) map[string]any {
+	merged := make(map[string]any, len(base)+len(extra))
+	for k, v := range base {
+		merged[k] = v
+	}
+	for k, v := range extra {
+		merged[k] = v
+	}
+	return merged
+}
+
 // Output outputs the results in SARIF format.
 func (s *SARIF) Output(results CheckResults) error {
 	report, err := sarif.New(sarifVersion)
@@ -132,7 +203,7 @@ func (s *SARIF) Output(results CheckResults) error {
 		// Process exceptions (treated as successes)
 		hasSuccesses := result.Successes > 0
 		for _, exception := range result.Exceptions {
-			addResult(run, exception, result.Namespace, "allow", "note", result.FileName, indices)
+			addExceptionResults(run, exception, result.Namespace, result.FileName, indices)
 			hasSuccesses = true
 		}
 
@@ -162,6 +233,14 @@ func (s *SARIF) Output(results CheckResults) error {
 		}
 	}
 
+	exitCode := results.ExitCode()
+	if s.failOnWarn {
+		exitCode = results.ExitCodeFailOnWarn()
+	}
+	if s.noFail {
+		exitCode = 0
+	}
+
 	exitDesc := exitNoViolations
 	if results.HasFailure() {
 		exitDesc = exitViolations
@@ -170,8 +249,8 @@ func (s *SARIF) Output(results CheckResults) error {
 	}
 
 	run.AddInvocations(sarif.NewInvocation().
-		WithExecutionSuccess(true).
-		WithExitCode(results.ExitCode()).
+		WithExecutionSuccess(exitCode == 0).
+		WithExitCode(exitCode).
 		WithExitCodeDescription(exitDesc))
 
 	// Add the run to the report

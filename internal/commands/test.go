@@ -155,6 +155,8 @@ func NewTestCommand(ctx context.Context) *cobra.Command {
 					Tracing:            runner.Trace,
 					JUnitHideMessage:   viper.GetBool("junit-hide-message"),
 					GitHubHidePassed:   viper.GetBool("github-hide-passed"),
+					FailOnWarn:         runner.FailOnWarn,
+					NoFail:             runner.NoFail,
 				})
 				if err := outputter.Output(results); err != nil {
 					return fmt.Errorf("output results: %w", err)

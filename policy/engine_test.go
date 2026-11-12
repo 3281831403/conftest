@@ -12,6 +12,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/open-policy-agent/conftest/output"
 	"github.com/open-policy-agent/conftest/parser"
 	"github.com/open-policy-agent/opa/v1/ast"
 	"github.com/open-policy-agent/opa/v1/loader"
@@ -61,6 +62,38 @@ func TestException(t *testing.T) {
 	actualExceptions := len(results[0].Exceptions)
 	if actualExceptions != expectedExceptions {
 		t.Errorf("Multifile yaml test failure. Got %v exceptions, expected %v", actualExceptions, expectedExceptions)
+	}
+
+	exception := results[0].Exceptions[0]
+
+	// The original exception query string remains the exception message so
+	// stdout and existing consumers keep their behaviour.
+	const expectedExceptionMessage = `data.main.exception[_][_] == "run_as_root"`
+	if exception.Message != expectedExceptionMessage {
+		t.Errorf("exception message = %q, expected %q", exception.Message, expectedExceptionMessage)
+	}
+
+	rule, ok := exception.WaivedRule()
+	if !ok || rule != "deny_run_as_root" {
+		t.Errorf("waived rule = %q (%v), expected deny_run_as_root", rule, ok)
+	}
+
+	severity, ok := exception.Metadata[output.WaivedSeverityMetadata].(string)
+	if !ok || severity != "failure" {
+		t.Errorf("waived severity = %q (%v), expected failure", severity, ok)
+	}
+
+	waivedMessages := exception.WaivedMessages()
+	expectedWaivedMessages := []string{"Containers must not run as root in Deployment can-run-as-root"}
+	if !reflect.DeepEqual(waivedMessages, expectedWaivedMessages) {
+		t.Errorf("waived messages = %v, expected %v", waivedMessages, expectedWaivedMessages)
+	}
+
+	// The waived violation must not also be reported as a failure.
+	for _, failure := range results[0].Failures {
+		if reflect.DeepEqual(failure.Message, expectedWaivedMessages[0]) {
+			t.Errorf("waived violation was also reported as a failure: %q", failure.Message)
+		}
 	}
 }
 
